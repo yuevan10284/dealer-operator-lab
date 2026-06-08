@@ -313,6 +313,24 @@ body {
     --pad-y: 18px;
   }
 
+  /* ── Kill scroll-snap on mobile — it fights internal scrolling ── */
+  html {
+    scroll-snap-type: none;
+    overflow-y: auto;
+  }
+  /* Slides grow to fit content instead of being locked to viewport height */
+  .slide {
+    height: auto;
+    min-height: 100svh;
+    scroll-snap-align: none;
+    scroll-snap-stop: unset;
+  }
+  /* s-body no longer needs internal scroll — slide expands instead */
+  .s-body {
+    overflow-y: visible;
+    padding-bottom: 20px;
+  }
+
   /* side dots hidden on small screens — too cramped */
   #sidedots { display: none; }
 
