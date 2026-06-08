@@ -24,32 +24,37 @@
   --pad-y:  60px;
 }
 
-html, body { height: 100%; }
+html {
+  height: 100%;
+  /* vertical scroll-snap container */
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  scroll-behavior: smooth;
+  /* hide scrollbar but keep function */
+  scrollbar-width: none;
+}
+html::-webkit-scrollbar { display: none; }
+
 body {
   background: var(--bg);
   color: var(--text);
   font-family: 'Inter', system-ui, sans-serif;
-  overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }
 
-/* ── Deck ── */
-#deck { position: fixed; inset: 0; }
+/* ── Deck is normal flow now ── */
+#deck { display: block; }
 
 .slide {
-  position: absolute;
-  inset: 0;
+  height: 100svh;           /* each slide = one viewport */
+  scroll-snap-align: start;
+  scroll-snap-stop: always; /* one step per scroll event */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   padding: var(--pad-y) var(--pad-x);
-  opacity: 0;
-  pointer-events: none;
-  transform: translateX(32px);
-  transition: opacity .42s var(--ease), transform .42s var(--ease);
+  position: relative;       /* for IntersectionObserver target */
 }
-.slide.active { opacity: 1; pointer-events: all; transform: none; }
-.slide.exit   { opacity: 0; transform: translateX(-32px); transition: opacity .22s ease, transform .22s ease; }
 
 /* ── Every slide: header bar ── */
 .s-header {
@@ -76,15 +81,19 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Content area (grows between header and footer) ── */
+/* ── Content area ── */
 .s-body {
   flex: 1;
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 40px 0 20px;
+  padding: 32px 0 16px;
   max-width: 1060px;
+  /* allow internal scroll on very dense slides */
+  overflow-y: auto;
+  scrollbar-width: none;
 }
+.s-body::-webkit-scrollbar { display: none; }
 
 /* ── Footer ── */
 .s-footer {
@@ -111,7 +120,7 @@ body {
 .s-nav {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 .nav-arrow {
   background: none; border: 1px solid var(--line2);
@@ -121,19 +130,39 @@ body {
   transition: background .15s, color .15s;
 }
 .nav-arrow:hover { background: var(--bg2); color: var(--text); }
-#dots { display: flex; gap: 4px; align-items: center; }
-.dot  { width: 4px; height: 4px; border-radius: 50%; background: var(--line2); cursor: pointer; transition: all .25s; }
-.dot.on { background: var(--amber); width: 12px; border-radius: 2px; }
 
-/* ── Stagger ── */
-.fu { opacity: 0; transform: translateY(10px); transition: opacity .38s ease, transform .38s ease; }
-.slide.active .fu                { opacity: 1; transform: none; }
-.slide.active .fu:nth-child(1)   { transition-delay: .06s; }
-.slide.active .fu:nth-child(2)   { transition-delay: .12s; }
-.slide.active .fu:nth-child(3)   { transition-delay: .18s; }
-.slide.active .fu:nth-child(4)   { transition-delay: .24s; }
-.slide.active .fu:nth-child(5)   { transition-delay: .30s; }
-.slide.active .fu:nth-child(6)   { transition-delay: .36s; }
+/* ── Fixed side-dot progress indicator ── */
+#sidedots {
+  position: fixed;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  z-index: 300;
+}
+.sdot {
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--line2);
+  cursor: pointer;
+  transition: all .3s var(--ease);
+}
+.sdot.on {
+  background: var(--amber);
+  height: 16px;
+  border-radius: 3px;
+}
+
+/* ── Scroll-in animation (IntersectionObserver driven) ── */
+.fu { opacity: 0; transform: translateY(12px); transition: opacity .45s ease, transform .45s ease; }
+.fu.visible { opacity: 1; transform: none; }
+.fu.visible:nth-child(2) { transition-delay: .07s; }
+.fu.visible:nth-child(3) { transition-delay: .14s; }
+.fu.visible:nth-child(4) { transition-delay: .21s; }
+.fu.visible:nth-child(5) { transition-delay: .28s; }
+.fu.visible:nth-child(6) { transition-delay: .35s; }
 
 /* ── Type scale ── */
 .overline {
@@ -284,13 +313,8 @@ body {
     --pad-y: 18px;
   }
 
-  /* Use dynamic viewport height on mobile to avoid address-bar issues */
-  #deck { height: 100dvh; }
-  .slide { height: 100dvh; }
-
-  /* Slide transitions feel snappier on mobile */
-  .slide { transform: none; transition: opacity .3s ease; }
-  .slide.exit { transform: none; opacity: 0; }
+  /* side dots hidden on small screens — too cramped */
+  #sidedots { display: none; }
 
   /* Header: tighten, allow wrapping */
   .s-header {
@@ -885,6 +909,8 @@ body {
 
 </div><!-- /deck -->
 
+<div id="sidedots"></div>
+
 <script>
 // ── Build logo footer HTML ──
 const cleoSVG = `<svg viewBox="200 750 700 550" xmlns="http://www.w3.org/2000/svg" style="width:16px;height:16px">
@@ -912,12 +938,12 @@ const footerLogoHTML = `
   </div>`;
 
 // ── Wire up slides ──
-const slides = document.querySelectorAll('.slide');
+const slides = Array.from(document.querySelectorAll('.slide'));
 const total  = slides.length;
-let cur = 0, busy = false;
+const sidedotsEl = document.getElementById('sidedots');
 
 slides.forEach((s, i) => {
-  // footer
+  // inject footer
   s.querySelectorAll('.js-footer').forEach(el => { el.innerHTML = footerLogoHTML; el.className = 's-footer'; });
   // slide number
   s.querySelectorAll('.js-num').forEach(el => {
@@ -925,49 +951,62 @@ slides.forEach((s, i) => {
   });
 });
 
-// ── Dots ──
-const dotsEl = document.getElementById('dots');
-for (let i = 0; i < total; i++) {
+// ── Side dots ──
+slides.forEach((_, i) => {
   const d = document.createElement('div');
-  d.className = 'dot' + (i === 0 ? ' on' : '');
-  d.onclick = () => go(i);
-  dotsEl.appendChild(d);
+  d.className = 'sdot' + (i === 0 ? ' on' : '');
+  d.title = `Section ${i + 1}`;
+  d.onclick = () => slides[i].scrollIntoView({ behavior: 'smooth' });
+  sidedotsEl.appendChild(d);
+});
+
+function scrollTo(n) {
+  if (n < 0 || n >= total) return;
+  slides[n].scrollIntoView({ behavior: 'smooth' });
 }
 
-function go(n) {
-  if (busy || n === cur || n < 0 || n >= total) return;
-  busy = true;
-  slides[cur].classList.remove('active');
-  slides[cur].classList.add('exit');
-  setTimeout(() => slides[cur].classList.remove('exit'), 320);
-  cur = n;
-  slides[cur].classList.add('active');
-  document.querySelectorAll('.dot').forEach((d, i) => d.classList.toggle('on', i === cur));
-  setTimeout(() => busy = false, 480);
-}
-
-// All footer nav buttons share single handler via delegation
+// Footer arrow clicks (delegated — each slide injects fresh HTML)
 document.addEventListener('click', e => {
-  if (e.target.id === 'nb' || e.target.closest('#nb')) go(cur + 1);
-  if (e.target.id === 'pb' || e.target.closest('#pb')) go(cur - 1);
-});
-
-document.addEventListener('keydown', e => {
-  if (['ArrowRight','ArrowDown',' '].includes(e.key)) { e.preventDefault(); go(cur + 1); }
-  else if (['ArrowLeft','ArrowUp'].includes(e.key))   { e.preventDefault(); go(cur - 1); }
-});
-
-// Touch swipe — ignore if scrolling vertically inside s-body
-let tx = 0, ty = 0;
-document.addEventListener('touchstart', e => { tx = e.touches[0].clientX; ty = e.touches[0].clientY; }, { passive: true });
-document.addEventListener('touchend', e => {
-  const dx = tx - e.changedTouches[0].clientX;
-  const dy = ty - e.changedTouches[0].clientY;
-  // Only treat as horizontal swipe if dx > dy (not a vertical scroll)
-  if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
-    dx > 0 ? go(cur + 1) : go(cur - 1);
+  const nb = e.target.closest('#nb');
+  const pb = e.target.closest('#pb');
+  if (nb || pb) {
+    // find which slide contains this button
+    const slide = e.target.closest('.slide');
+    const idx   = slides.indexOf(slide);
+    if (nb) scrollTo(idx + 1);
+    if (pb) scrollTo(idx - 1);
   }
-}, { passive: true });
+});
+
+// Keyboard
+document.addEventListener('keydown', e => {
+  const active = Math.round(document.documentElement.scrollTop / window.innerHeight);
+  if (['ArrowDown', ' '].includes(e.key))  { e.preventDefault(); scrollTo(active + 1); }
+  if (['ArrowUp'].includes(e.key))         { e.preventDefault(); scrollTo(active - 1); }
+});
+
+// ── IntersectionObserver: update dots + trigger .fu animations ──
+const fuObserver = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.querySelectorAll('.fu').forEach(el => el.classList.add('visible'));
+    }
+  });
+}, { threshold: 0.3 });
+
+const dotObserver = new IntersectionObserver(entries => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      const i = slides.indexOf(entry.target);
+      sidedotsEl.querySelectorAll('.sdot').forEach((d, j) => d.classList.toggle('on', j === i));
+    }
+  });
+}, { threshold: 0.5 });
+
+slides.forEach(s => {
+  fuObserver.observe(s);
+  dotObserver.observe(s);
+});
 </script>
 </body>
 </html>
